@@ -1,0 +1,7 @@
+# Intellij
+.idea/
+*.iml
+
+# Project exclude paths
+/kafka-delayed-producer-core/target/
+/kafka-delayed-producer-directory/target/
