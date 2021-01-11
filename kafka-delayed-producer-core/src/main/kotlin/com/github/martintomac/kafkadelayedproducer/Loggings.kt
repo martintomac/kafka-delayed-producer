@@ -4,7 +4,13 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 @Suppress("unused") // receiver is needed for reified type
-inline fun <reified T> T.logger(): Logger = LoggerFactory.getLogger(T::class.java)
+inline fun <reified T : Any> T.logger(): Logger = logger(T::class.java)
+
+fun <T : Any> logger(javaClass: Class<T>): Logger = LoggerFactory.getLogger(getClassForLogging(javaClass))
+
+private fun <T : Any> getClassForLogging(javaClass: Class<T>): Class<*> {
+    return if (javaClass.kotlin.isCompanion) javaClass.enclosingClass else javaClass
+}
 
 private class LazyString(private val msg: () -> String) {
     override fun toString(): String = msg()
