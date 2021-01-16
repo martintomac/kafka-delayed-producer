@@ -14,7 +14,7 @@ import kotlin.concurrent.thread
 
 class KafkaDelayedProducer<K, V : Any>(
     private val kafkaProducer: Producer<K, V>,
-    private val referenceFactory: ReferenceFactory<ProducerRecord<K, V>> = ReferenceFactory.instance(),
+    private val referenceFactory: ReferenceFactory<DelayedRecord<K, V>> = ReferenceFactory.instance(),
     private val errorHandler: ErrorHandler = RetryingErrorHandler(),
     private val clock: Clock = Clock
 ) : DelayedProducer<K, V>, Closeable {
@@ -35,10 +35,9 @@ class KafkaDelayedProducer<K, V : Any>(
         record: ProducerRecord<K, V>,
         afterDuration: Duration
     ) {
-        val scheduledTime = clock.now() + afterDuration
-        val recordReference = referenceFactory.create(record)
-        logger.trace { "Scheduling $record send on $scheduledTime" }
-        delayedRecordReferences += DelayedRecordReference(recordReference, scheduledTime)
+        val delayedRecord = DelayedRecord(record, afterDuration, clock.now())
+        logger.trace { "Delaying $record send until ${delayedRecord.scheduledOnTime}" }
+        delayedRecordReferences += DelayedRecordReference(delayedRecord)
     }
 
     override fun close() {
@@ -50,22 +49,15 @@ class KafkaDelayedProducer<K, V : Any>(
     }
 
     private inner class DelayedRecordReference(
-        private val reference: Reference<ProducerRecord<K, V>>,
-        private val scheduledTime: Instant
-    ) : Delayed, Reference<ProducerRecord<K, V>> {
+        delayedRecord: DelayedRecord<K, V>
+    ) : AbstractDelayed(), Reference<ProducerRecord<K, V>> {
 
-        override val value: ProducerRecord<K, V> get() = reference.value
+        private val reference: Reference<DelayedRecord<K, V>> = referenceFactory.create(delayedRecord)
+        private val scheduledOnTime: Instant = delayedRecord.scheduledOnTime
 
-        override fun compareTo(other: Delayed): Int {
-            val comparisonUnit = NANOSECONDS
-            return getDelay(comparisonUnit)
-                .compareTo(other.getDelay(comparisonUnit))
-        }
+        override val value: ProducerRecord<K, V> get() = reference.value.producerRecord
 
-        override fun getDelay(unit: TimeUnit): Long {
-            val remainingDelay = Duration.between(clock.now(), scheduledTime)
-            return NANOSECONDS.convert(remainingDelay.toNanos(), unit)
-        }
+        override fun getDelay(): Duration = Duration.between(clock.now(), scheduledOnTime)
 
         override fun release() {
             reference.release()
@@ -157,4 +149,18 @@ class KafkaDelayedProducer<K, V : Any>(
     }
 
     private fun <T> Future<T>.get(timeout: Duration): T = get(timeout.toNanos(), NANOSECONDS)
+
+    private abstract class AbstractDelayed : Delayed {
+
+        override fun compareTo(other: Delayed): Int {
+            return getDelay(NANOSECONDS)
+                .compareTo(other.getDelay(NANOSECONDS))
+        }
+
+        override fun getDelay(unit: TimeUnit): Long {
+            return unit.convert(getDelay().toNanos(), NANOSECONDS)
+        }
+
+        abstract fun getDelay(): Duration
+    }
 }

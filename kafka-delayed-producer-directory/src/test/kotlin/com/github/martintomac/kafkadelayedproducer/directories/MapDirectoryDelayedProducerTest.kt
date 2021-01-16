@@ -1,9 +1,6 @@
 package com.github.martintomac.kafkadelayedproducer.directories
 
-import com.github.martintomac.kafkadelayedproducer.KafkaDelayedProducer
-import com.github.martintomac.kafkadelayedproducer.after
-import com.github.martintomac.kafkadelayedproducer.millis
-import com.github.martintomac.kafkadelayedproducer.send
+import com.github.martintomac.kafkadelayedproducer.*
 import org.apache.kafka.clients.producer.MockProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.serialization.StringSerializer
@@ -19,7 +16,7 @@ import kotlin.test.assertTrue
 internal class MapDirectoryDelayedProducerTest {
 
     private val mockProducer = MockProducer(true, StringSerializer(), StringSerializer())
-    private val mapDirectory = MapDirectory.create<ProducerRecord<String, String>> { ConcurrentHashMap() }
+    private val mapDirectory = MapDirectory.create<DelayedRecord<String, String>> { ConcurrentHashMap() }
     private val delayedProducer = KafkaDelayedProducer(
         kafkaProducer = mockProducer,
         referenceFactory = DirectoryReferenceFactory(mapDirectory)
