@@ -10,9 +10,9 @@ class DirectoryReferenceFactory<T : Any>(directory: Directory<*, T>) : Reference
 
     override fun create(value: T): Reference<T> = DirectoryReference(value)
 
-    private inner class DirectoryReference(record: T) : Reference<T> {
+    private inner class DirectoryReference(value: T) : Reference<T> {
 
-        private val key: Any = directory.write(record)
+        private val key: Any = directory.write(value)
 
         @Suppress("UNCHECKED_CAST")
         override val value: T

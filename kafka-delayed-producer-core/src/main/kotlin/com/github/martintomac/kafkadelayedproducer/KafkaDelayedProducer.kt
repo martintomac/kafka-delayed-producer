@@ -29,7 +29,7 @@ class KafkaDelayedProducer<K, V : Any>(
     private var closed = false
 
     override val numOfUnsentRecords: Int
-        get() = delayedRecordReferences.size + availableRecordSender.numOfOutboxRecords
+        get() = delayedRecordReferences.size + availableRecordSender.recordOutboxSize
 
     override fun send(
         record: ProducerRecord<K, V>,
@@ -63,7 +63,7 @@ class KafkaDelayedProducer<K, V : Any>(
     private inner class AvailableRecordSender {
 
         private val outboxRecordReferences = synchronizedList(mutableListOf<DelayedRecordReference>())
-        val numOfOutboxRecords get() = outboxRecordReferences.size
+        val recordOutboxSize get() = outboxRecordReferences.size
 
         private val pollingThread = thread(
             name = "kafka-delayed-producer-thread",
