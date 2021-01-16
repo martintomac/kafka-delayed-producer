@@ -48,23 +48,19 @@ class KafkaDelayedProducer<K, V : Any>(
         kafkaProducer.close()
     }
 
-    private inner class DelayedRecordReference(
-        delayedRecord: DelayedRecord<K, V>
-    ) : AbstractDelayed(), Reference<ProducerRecord<K, V>> {
+    private inner class DelayedRecordReference(delayedRecord: DelayedRecord<K, V>) : AbstractDelayed() {
 
         private val reference: Reference<DelayedRecord<K, V>> = referenceFactory.create(delayedRecord)
         private val scheduledOnTime: Instant = delayedRecord.scheduledOnTime
 
-        override val value: ProducerRecord<K, V> get() = reference.value.producerRecord
+        val producerRecord: ProducerRecord<K, V> get() = reference.value.producerRecord
 
         override fun getDelay(): Duration = Duration.between(clock.now(), scheduledOnTime)
 
-        override fun release() {
-            reference.release()
-        }
+        fun release() = reference.release()
     }
 
-    private inner class AvailableRecordSender : Closeable {
+    private inner class AvailableRecordSender {
 
         private val outboxRecordReferences = synchronizedList(mutableListOf<DelayedRecordReference>())
         val numOfOutboxRecords get() = outboxRecordReferences.size
@@ -83,7 +79,7 @@ class KafkaDelayedProducer<K, V : Any>(
             outboxRecordReferences += recordReferences
 
             val referenceToFutureList = recordReferences
-                .map { reference -> reference to send(reference.value) }
+                .map { reference -> reference to send(reference.producerRecord) }
 
             for ((reference, future) in referenceToFutureList) {
                 try {
@@ -96,7 +92,7 @@ class KafkaDelayedProducer<K, V : Any>(
                     }
                 } catch (e: ExecutionException) {
                     val cause = e.cause as Exception
-                    handleException(reference.value, cause)
+                    handleException(reference.producerRecord, cause)
                 }
 
                 outboxRecordReferences -= reference
@@ -126,9 +122,7 @@ class KafkaDelayedProducer<K, V : Any>(
             }
         }
 
-        override fun close() {
-            pollingThread.join()
-        }
+        fun close(): Unit = pollingThread.join()
     }
 
     private fun <T : Delayed> DelayQueue<T>.poll(
