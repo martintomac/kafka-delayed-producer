@@ -2,14 +2,16 @@ package com.github.martintomac.kafkadelayedproducer
 
 import org.apache.kafka.clients.producer.Producer
 import org.apache.kafka.clients.producer.ProducerRecord
+import org.apache.kafka.clients.producer.RecordMetadata
 import java.time.Duration
 
 interface ErrorHandler {
+
     fun <K, V> handle(
         ex: Exception,
         producerRecord: ProducerRecord<K, V>,
         producer: Producer<K, V>
-    )
+    ): RecordMetadata
 }
 
 class RetryingErrorHandler(
@@ -20,9 +22,9 @@ class RetryingErrorHandler(
         ex: Exception,
         producerRecord: ProducerRecord<K, V>,
         producer: Producer<K, V>
-    ) {
+    ): RecordMetadata {
         sleep(retryDuration)
-        producer.send(producerRecord).get()
+        return producer.send(producerRecord).get()
     }
 
     private fun sleep(duration: Duration) {

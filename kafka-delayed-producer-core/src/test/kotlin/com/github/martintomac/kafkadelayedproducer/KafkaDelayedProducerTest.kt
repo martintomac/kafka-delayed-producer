@@ -10,7 +10,14 @@ import org.awaitility.kotlin.until
 import org.awaitility.kotlin.withPollDelay
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
+import org.junit.jupiter.api.assertThrows
 import java.time.Duration
+import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit.NANOSECONDS
+import java.util.concurrent.TimeUnit.SECONDS
+import java.util.concurrent.TimeoutException
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 internal class KafkaDelayedProducerTest {
@@ -28,9 +35,9 @@ internal class KafkaDelayedProducerTest {
         delayedProducer = KafkaDelayedProducer(mockProducer)
 
         val record = ProducerRecord("test-topic", "test-key", "test-value")
-        delayedProducer.send(record after 100.millis)
+        val future = delayedProducer.send(record after 100.millis)
 
-        await atMost 200.millis until { mockProducer.history().size > 0 }
+        await atMost 200.millis until { future.isDone }
     }
 
     @Test
@@ -39,10 +46,10 @@ internal class KafkaDelayedProducerTest {
         delayedProducer = KafkaDelayedProducer(mockProducer)
 
         val record = ProducerRecord("test-topic", "test-key", "test-value")
-        delayedProducer.send(record after 200.millis)
+        val future = delayedProducer.send(record after 200.millis)
 
         sleep(100.millis)
-        assertTrue { mockProducer.history().size == 0 }
+        assertFalse { future.isDone }
     }
 
     @Test
@@ -63,7 +70,7 @@ internal class KafkaDelayedProducerTest {
         val mockProducer = MockProducer(true, StringSerializer(), StringSerializer())
         delayedProducer = KafkaDelayedProducer(mockProducer)
 
-        assertTrue { delayedProducer.numOfUnsentRecords == 0 }
+        assertTrue { delayedProducer.numOfDelayedRecords == 0 }
     }
 
     @Test
@@ -74,7 +81,7 @@ internal class KafkaDelayedProducerTest {
         val record = ProducerRecord("test-topic", "test-key", "test-value")
         delayedProducer.send(record after 100.millis)
 
-        assertTrue { delayedProducer.numOfUnsentRecords == 1 }
+        assertTrue { delayedProducer.numOfDelayedRecords == 1 }
     }
 
     @Test
@@ -87,7 +94,7 @@ internal class KafkaDelayedProducerTest {
 
         sleep(200.millis)
 
-        assertTrue { delayedProducer.numOfUnsentRecords == 0 }
+        assertTrue { delayedProducer.numOfDelayedRecords == 0 }
     }
 
     @Test
@@ -96,22 +103,60 @@ internal class KafkaDelayedProducerTest {
         delayedProducer = KafkaDelayedProducer(mockProducer)
 
         val record = ProducerRecord("test-topic", "test-key", "test-value")
-        delayedProducer.send(record after 10.millis)
+        val future = delayedProducer.send(record after 100.millis)
 
-        await atMost 100.millis withPollDelay 10.millis until { mockProducer.history().size == 1 }
-        assertTrue { delayedProducer.numOfUnsentRecords == 1 }
+        await atMost 200.millis withPollDelay 10.millis until { mockProducer.history().size == 1 }
+        assertFalse { future.isDone }
+        assertTrue { delayedProducer.numOfDelayedRecords == 1 }
 
         mockProducer.errorNext(KafkaException("Some kafka exception"))
 
         await atMost 2.seconds until { mockProducer.history().size == 2 }
-        assertTrue { delayedProducer.numOfUnsentRecords == 1 }
+        assertFalse { future.isDone }
+        assertTrue { delayedProducer.numOfDelayedRecords == 1 }
 
         mockProducer.completeNext()
 
-        await atMost 2.seconds until { delayedProducer.numOfUnsentRecords == 0 }
+        await atMost 2.seconds until { future.isDone }
+        assertTrue { delayedProducer.numOfDelayedRecords == 0 }
     }
 
-    private fun sleep(duration: Duration) {
-        Thread.sleep(duration.toMillis())
+    @Test
+    @Timeout(value = 1, unit = SECONDS)
+    fun blocking_future_get_should_return_result() {
+        val mockProducer = MockProducer(true, StringSerializer(), StringSerializer())
+        delayedProducer = KafkaDelayedProducer(mockProducer)
+
+        val record = ProducerRecord("test-topic", "test-key", "test-value")
+        val future = delayedProducer.send(record after 100.millis)
+
+        val recordMetadata = future.get()
+        assertTrue { recordMetadata != null }
     }
+
+    @Test
+    fun future_get_should_timeout() {
+        val mockProducer = MockProducer(true, StringSerializer(), StringSerializer())
+        delayedProducer = KafkaDelayedProducer(mockProducer)
+
+        val record = ProducerRecord("test-topic", "test-key", "test-value")
+        val future = delayedProducer.send(record after 100.millis)
+
+        assertThrows<TimeoutException> { future.get(50.millis) }
+    }
+
+    @Test
+    fun future_get_with_timeout_should_return() {
+        val mockProducer = MockProducer(true, StringSerializer(), StringSerializer())
+        delayedProducer = KafkaDelayedProducer(mockProducer)
+
+        val record = ProducerRecord("test-topic", "test-key", "test-value")
+        val future = delayedProducer.send(record after 100.millis)
+
+        future.get(200.millis)
+    }
+
+    private fun sleep(duration: Duration): Unit = Thread.sleep(duration.toMillis())
+
+    private fun <T> Future<T>.get(timeout: Duration): T = get(timeout.toNanos(), NANOSECONDS)
 }
