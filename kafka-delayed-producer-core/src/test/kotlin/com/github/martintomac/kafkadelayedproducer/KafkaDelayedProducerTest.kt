@@ -1,5 +1,6 @@
 package com.github.martintomac.kafkadelayedproducer
 
+import com.github.martintomac.kafkadelayedproducer.RetryingErrorHandler.FixedBackOff
 import org.apache.kafka.clients.producer.MockProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.KafkaException
@@ -100,7 +101,10 @@ internal class KafkaDelayedProducerTest {
     @Test
     fun recover_on_failure() {
         val mockProducer = MockProducer(false, StringSerializer(), StringSerializer())
-        delayedProducer = KafkaDelayedProducer(mockProducer)
+        delayedProducer = KafkaDelayedProducer(
+            kafkaProducer = mockProducer,
+            errorHandler = RetryingErrorHandler(FixedBackOff(1.seconds, 1))
+        )
 
         val record = ProducerRecord("test-topic", "test-key", "test-value")
         val future = delayedProducer.sendAsync(record after 100.millis)

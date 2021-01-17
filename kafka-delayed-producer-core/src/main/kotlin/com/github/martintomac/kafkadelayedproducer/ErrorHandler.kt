@@ -26,20 +26,67 @@ interface SendTask<K, V> {
 }
 
 class RetryingErrorHandler(
-    private val retryDuration: Duration = 1.seconds
+    private val backOff: BackOff = FixedBackOff.DEFAULT
 ) : ErrorHandler {
+
+    companion object {
+        private val logger = logger()
+    }
 
     override fun <K, V> handle(
         ex: Exception,
         sendTask: SendTask<K, V>,
         producer: Producer<K, V>
     ) {
-        sleep(retryDuration)
-        val recordMetadata = producer.send(sendTask.producerRecord).get()
-        sendTask.sent(recordMetadata)
+        val producerRecord = sendTask.producerRecord
+        with(backOff.start()) {
+            while (true) {
+                val nextBackOff = nextBackOff()
+                if (nextBackOff == null) {
+                    logger.warn { "Backing off recover of record ($producerRecord) after max attempts exceeded" }
+                    sendTask.discarded(BackedOffException("Failed to recover record ($producerRecord)"))
+                    return
+                }
+                sleep(nextBackOff)
+
+                try {
+                    val recordMetadata = producer.send(producerRecord).get()
+                    sendTask.sent(recordMetadata)
+                    return
+                } catch (e: Exception) {
+                    logger.warn(e) { "Failed to recover record ($producerRecord)" }
+                }
+            }
+        }
     }
 
     private fun sleep(duration: Duration) {
         Thread.sleep(duration.toMillis())
     }
+
+    interface BackOff {
+        fun start(): BackOffExecution
+    }
+
+    interface BackOffExecution {
+        fun nextBackOff(): Duration?
+    }
+
+    class FixedBackOff(
+        private val interval: Duration,
+        private val maxAttempts: Long
+    ) : BackOff {
+
+        companion object {
+            val DEFAULT = FixedBackOff(1.seconds, Long.MAX_VALUE)
+        }
+
+        override fun start() = object : BackOffExecution {
+            private var currentAttempt = 0L
+
+            override fun nextBackOff() = interval.takeIf { currentAttempt++ < maxAttempts }
+        }
+    }
+
+    class BackedOffException(message: String) : Exception(message)
 }
