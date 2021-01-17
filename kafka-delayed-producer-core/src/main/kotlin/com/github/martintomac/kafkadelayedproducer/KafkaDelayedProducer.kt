@@ -89,8 +89,8 @@ class KafkaDelayedProducer<K, V : Any>(
         ) {
             while (!closed) {
                 try {
-                    val recordTasks = delayedRecordSendTasks.poll(1.seconds, 100)
-                    if (recordTasks.isNotEmpty()) send(recordTasks)
+                    if (inProgressRecordTasks.isEmpty()) inProgressRecordTasks += delayedRecordSendTasks.poll(1.seconds, 100)
+                    if (inProgressRecordTasks.isNotEmpty()) sendInProgress()
                 } catch (e: ClosingException) {
                 } catch (e: Exception) {
                     logger.error(e) { "Polling thread caught unexpected exception" }
@@ -98,10 +98,8 @@ class KafkaDelayedProducer<K, V : Any>(
             }
         }
 
-        private fun send(recordSendTasks: List<DelayedRecordSendTask>) {
-            inProgressRecordTasks += recordSendTasks
-
-            val taskToFutureList = recordSendTasks
+        private fun sendInProgress() {
+            val taskToFutureList = inProgressRecordTasks
                 .map { sendTask -> sendTask to send(sendTask.producerRecord) }
 
             for ((sendTask, future) in taskToFutureList) {
