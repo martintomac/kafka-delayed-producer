@@ -12,7 +12,7 @@ fun main() {
 
     val record = ProducerRecord(topic, key, value)
     // produce record with delay    
-    val future = delayedProducer.send(record after 100.millis)
+    delayedProducer.send(record after 100.millis)
 }
 ```
 
