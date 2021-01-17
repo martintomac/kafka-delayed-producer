@@ -15,7 +15,7 @@ import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.thread
 import kotlin.concurrent.withLock
 
-class KafkaDelayedProducer<K, V : Any>(
+class KafkaDelayedProducer<K, V>(
     private val kafkaProducer: Producer<K, V>,
     private val referenceFactory: ReferenceFactory<DelayedRecord<K, V>> = ReferenceFactory.instance(),
     private val errorHandler: ErrorHandler = RetryingErrorHandler(),

@@ -6,7 +6,7 @@ import java.io.Closeable
 import java.time.Duration
 import java.util.concurrent.Future
 
-interface DelayedProducer<K, V : Any> : Closeable {
+interface DelayedProducer<K, V> : Closeable {
 
     val numOfDelayedRecords: Int
 

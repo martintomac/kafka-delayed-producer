@@ -4,7 +4,7 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import java.time.Duration
 import java.time.Instant
 
-data class DelayedRecord<K, V: Any>(
+data class DelayedRecord<K, V>(
     val producerRecord: ProducerRecord<K, V>,
     val delay: Duration,
     val timeOfScheduling: Instant
