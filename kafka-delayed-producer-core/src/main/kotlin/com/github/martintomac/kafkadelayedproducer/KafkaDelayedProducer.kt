@@ -4,16 +4,13 @@ import org.apache.kafka.clients.producer.Producer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.RecordMetadata
 import java.io.Closeable
-import java.lang.ref.WeakReference
 import java.time.Duration
 import java.time.Instant
 import java.util.Collections.emptyList
 import java.util.Collections.synchronizedList
 import java.util.concurrent.*
 import java.util.concurrent.TimeUnit.NANOSECONDS
-import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.thread
-import kotlin.concurrent.withLock
 
 class KafkaDelayedProducer<K, V>(
     private val kafkaProducer: Producer<K, V>,
@@ -37,17 +34,12 @@ class KafkaDelayedProducer<K, V>(
 
     override fun send(
         record: ProducerRecord<K, V>,
-        afterDuration: Duration
-    ): Future<RecordMetadata> {
+        afterDuration: Duration,
+        callback: DelayedSendCallback
+    ) {
         val delayedRecord = DelayedRecord(record, afterDuration, clock.now())
         logger.trace { "Delaying $record send until ${delayedRecord.scheduledOnTime}" }
-        return schedule(delayedRecord)
-    }
-
-    private fun schedule(delayedRecord: DelayedRecord<K, V>): Future<RecordMetadata> {
-        val future: SendTaskFuture<RecordMetadata> = SendTaskFuture()
-        delayedRecordSendTasks += DelayedRecordSendTask(delayedRecord, future)
-        return future
+        delayedRecordSendTasks += DelayedRecordSendTask(delayedRecord, callback)
     }
 
     override fun close() {
@@ -61,19 +53,21 @@ class KafkaDelayedProducer<K, V>(
 
     private inner class DelayedRecordSendTask(
         delayedRecord: DelayedRecord<K, V>,
-        future: SendTaskFuture<RecordMetadata>
-    ) : AbstractDelayed() {
+        val callback: DelayedSendCallback
+    ) : AbstractDelayed(), SendTask<K, V> {
 
         private val reference: Reference<DelayedRecord<K, V>> = referenceFactory.create(delayedRecord)
         private val scheduledOnTime: Instant = delayedRecord.scheduledOnTime
 
-        private val futureReference = WeakReference(future)
-
-        val producerRecord: ProducerRecord<K, V> get() = reference.value.producerRecord
+        override val producerRecord: ProducerRecord<K, V> get() = reference.value.producerRecord
 
         override fun getDelay(): Duration = Duration.between(clock.now(), scheduledOnTime)
 
-        fun completed(recordMetadata: RecordMetadata) = futureReference.get()?.complete(recordMetadata)
+        override fun sent(recordMetadata: RecordMetadata) = callback.onSent(recordMetadata)
+
+        override fun failed(exception: Exception) = callback.onFailure(exception)
+
+        override fun discarded(cancelCause: Exception) = callback.onDiscarded(cancelCause)
 
         fun release() = reference.release()
     }
@@ -89,8 +83,10 @@ class KafkaDelayedProducer<K, V>(
         ) {
             while (!closed) {
                 try {
-                    if (inProgressRecordTasks.isEmpty()) inProgressRecordTasks += delayedRecordSendTasks.poll(1.seconds, 100)
-                    if (inProgressRecordTasks.isNotEmpty()) sendInProgress()
+                    if (inProgressRecordTasks.isEmpty())
+                        inProgressRecordTasks += delayedRecordSendTasks.poll(1.seconds, 100)
+                    if (inProgressRecordTasks.isNotEmpty())
+                        sendInProgress()
                 } catch (e: ClosingException) {
                 } catch (e: Exception) {
                     logger.error(e) { "Polling thread caught unexpected exception" }
@@ -103,15 +99,14 @@ class KafkaDelayedProducer<K, V>(
                 .map { sendTask -> sendTask to send(sendTask.producerRecord) }
 
             for ((sendTask, future) in taskToFutureList) {
-                val recordMetadata: RecordMetadata =
-                    try {
-                        future.getUntilClosed()
-                    } catch (e: ExecutionException) {
-                        val cause = e.cause as Exception
-                        handleException(sendTask.producerRecord, cause)
-                    }
+                try {
+                    val recordMetadata = future.getUntilClosed()
+                    sendTask.callback.onSent(recordMetadata)
+                } catch (e: ExecutionException) {
+                    val cause = e.cause as Exception
+                    handleException(sendTask, cause)
+                }
 
-                sendTask.completed(recordMetadata)
                 inProgressRecordTasks -= sendTask
                 sendTask.release()
             }
@@ -133,56 +128,21 @@ class KafkaDelayedProducer<K, V>(
         }
 
         private fun handleException(
-            producerRecord: ProducerRecord<K, V>,
+            sendTask: SendTask<K, V>,
             thrownException: Exception
-        ): RecordMetadata {
+        ) {
+            val producerRecord = sendTask.producerRecord
             logger.warn(thrownException) { "Failed to send record with exception: $thrownException" }
             logger.debug { "Failed to send record: $producerRecord" }
-            while (!closed) {
-                try {
-                    return errorHandler.handle(thrownException, producerRecord, kafkaProducer)
-                        .also { logger.debug { "Handled failed send of record: $producerRecord" } }
-                } catch (handlingException: Exception) {
-                    logger.warn(handlingException) { "Failed to handle record send with exception: $handlingException" }
-                }
+            try {
+                errorHandler.handle(thrownException, sendTask, kafkaProducer)
+                logger.debug { "Successfully handled record: $producerRecord" }
+            } catch (handlingException: Exception) {
+                sendTask.failed(handlingException)
             }
-            throw ClosingException()
         }
 
         fun close(): Unit = pollingThread.join()
-    }
-
-    private class SendTaskFuture<T : Any> : Future<T> {
-
-        private val lock = ReentrantLock()
-        private val condition = lock.newCondition()
-
-        @Volatile
-        private var result: T? = null
-
-        fun complete(result: T): Unit = lock.withLock {
-            this.result = result
-            condition.signalAll()
-        }
-
-        override fun cancel(mayInterruptIfRunning: Boolean): Boolean = false
-
-        override fun isCancelled(): Boolean = false
-
-        override fun isDone(): Boolean = result != null
-
-        override fun get(): T = lock.withLock {
-            if (result == null) condition.await()
-            return result!!
-        }
-
-        override fun get(timeout: Long, unit: TimeUnit): T = lock.withLock {
-            if (result == null) {
-                val signalled = condition.await(timeout, unit)
-                if (!signalled) throw TimeoutException()
-            }
-            return result!!
-        }
     }
 
     private class ClosingException : Exception()

@@ -9,9 +9,20 @@ interface ErrorHandler {
 
     fun <K, V> handle(
         ex: Exception,
-        producerRecord: ProducerRecord<K, V>,
+        sendTask: SendTask<K, V>,
         producer: Producer<K, V>
-    ): RecordMetadata
+    )
+}
+
+interface SendTask<K, V> {
+
+    val producerRecord: ProducerRecord<K, V>
+
+    fun sent(recordMetadata: RecordMetadata)
+
+    fun failed(exception: Exception)
+
+    fun discarded(cancelCause: Exception)
 }
 
 class RetryingErrorHandler(
@@ -20,11 +31,12 @@ class RetryingErrorHandler(
 
     override fun <K, V> handle(
         ex: Exception,
-        producerRecord: ProducerRecord<K, V>,
+        sendTask: SendTask<K, V>,
         producer: Producer<K, V>
-    ): RecordMetadata {
+    ) {
         sleep(retryDuration)
-        return producer.send(producerRecord).get()
+        val recordMetadata = producer.send(sendTask.producerRecord).get()
+        sendTask.sent(recordMetadata)
     }
 
     private fun sleep(duration: Duration) {

@@ -35,7 +35,7 @@ internal class KafkaDelayedProducerTest {
         delayedProducer = KafkaDelayedProducer(mockProducer)
 
         val record = ProducerRecord("test-topic", "test-key", "test-value")
-        val future = delayedProducer.send(record after 100.millis)
+        val future = delayedProducer.sendAsync(record after 100.millis)
 
         await atMost 200.millis until { future.isDone }
     }
@@ -46,7 +46,7 @@ internal class KafkaDelayedProducerTest {
         delayedProducer = KafkaDelayedProducer(mockProducer)
 
         val record = ProducerRecord("test-topic", "test-key", "test-value")
-        val future = delayedProducer.send(record after 200.millis)
+        val future = delayedProducer.sendAsync(record after 200.millis)
 
         sleep(100.millis)
         assertFalse { future.isDone }
@@ -103,7 +103,7 @@ internal class KafkaDelayedProducerTest {
         delayedProducer = KafkaDelayedProducer(mockProducer)
 
         val record = ProducerRecord("test-topic", "test-key", "test-value")
-        val future = delayedProducer.send(record after 100.millis)
+        val future = delayedProducer.sendAsync(record after 100.millis)
 
         await atMost 200.millis withPollDelay 10.millis until { mockProducer.history().size == 1 }
         assertFalse { future.isDone }
@@ -111,7 +111,7 @@ internal class KafkaDelayedProducerTest {
 
         mockProducer.errorNext(KafkaException("Some kafka exception"))
 
-        await atMost 2.seconds until { mockProducer.history().size == 2 }
+        await atMost 5.seconds until { mockProducer.history().size == 2 }
         assertFalse { future.isDone }
         assertTrue { delayedProducer.numOfDelayedRecords == 1 }
 
@@ -128,7 +128,7 @@ internal class KafkaDelayedProducerTest {
         delayedProducer = KafkaDelayedProducer(mockProducer)
 
         val record = ProducerRecord("test-topic", "test-key", "test-value")
-        val future = delayedProducer.send(record after 100.millis)
+        val future = delayedProducer.sendAsync(record after 100.millis)
 
         val recordMetadata = future.get()
         assertTrue { recordMetadata != null }
@@ -140,7 +140,7 @@ internal class KafkaDelayedProducerTest {
         delayedProducer = KafkaDelayedProducer(mockProducer)
 
         val record = ProducerRecord("test-topic", "test-key", "test-value")
-        val future = delayedProducer.send(record after 100.millis)
+        val future = delayedProducer.sendAsync(record after 100.millis)
 
         assertThrows<TimeoutException> { future.get(50.millis) }
     }
@@ -151,7 +151,7 @@ internal class KafkaDelayedProducerTest {
         delayedProducer = KafkaDelayedProducer(mockProducer)
 
         val record = ProducerRecord("test-topic", "test-key", "test-value")
-        val future = delayedProducer.send(record after 100.millis)
+        val future = delayedProducer.sendAsync(record after 100.millis)
 
         future.get(200.millis)
     }
