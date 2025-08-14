@@ -19,7 +19,7 @@ internal class MapDirectoryDelayedProducerTest {
     private val mapDirectory = MapDirectory.create<DelayedRecord<String, String>> { ConcurrentHashMap() }
     private val delayedProducer = KafkaDelayedProducer(
         kafkaProducer = mockProducer,
-        referenceFactory = DirectoryReferenceFactory(mapDirectory)
+        scheduler = DefaultScheduler(DirectoryReferenceFactory(mapDirectory))
     )
 
     @AfterEach
