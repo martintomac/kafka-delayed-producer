@@ -15,14 +15,14 @@
     </modules>
 
     <properties>
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <kotlin.code.style>official</kotlin.code.style>
-        <kotlin.compiler.jvmTarget>1.8</kotlin.compiler.jvmTarget>
-        <kotlin.version>1.4.21</kotlin.version>
-        <slf4j.version>1.7.30</slf4j.version>
-        <junit-jupiter.version>5.7.0</junit-jupiter.version>
+        <kotlin.compiler.jvmTarget>17</kotlin.compiler.jvmTarget>
+        <kotlin.version>2.2.10</kotlin.version>
+        <slf4j.version>1.7.36</slf4j.version>
+        <junit-jupiter.version>5.10.1</junit-jupiter.version>
     </properties>
 
     <repositories>
@@ -73,8 +73,15 @@
         <dependency>
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility-kotlin</artifactId>
-            <version>4.0.3</version>
+            <version>4.2.2</version>
             <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <!-- it is using an older version -->
+                    <artifactId>kotlin-stdlib</artifactId>
+                    <groupId>org.jetbrains.kotlin</groupId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
@@ -124,12 +131,12 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>2.22.1</version>
+                <version>3.5.3</version>
             </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.5</version>
+                <version>0.8.13</version>
                 <executions>
                     <execution>
                         <id>pre-unit-test</id>
